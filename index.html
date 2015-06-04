@@ -1,0 +1,1192 @@
+<!DOCTYPE HTML>
+<html>
+    <head>
+        <title>Permutation Parser</title>
+        <meta http-equiv=content-type content=text/html;charset=UTF-8>
+        <style>
+            @import url(http://fonts.googleapis.com/css?family=Droid+Serif);
+            @import url(http://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+            @font-face {
+              font-family: 'tea';
+              src: url(simplified-SentyTEA-Platinum.ttf);
+            };
+
+            body {
+              font-family: 'Droid Serif';
+            }
+
+            h1, h2 {
+              font-family: 'tea';
+            }
+
+            .remark-slide-content h1 {
+                font-size: 32px;
+            }
+
+            .remark-slide-content h2 {
+                font-size: 24px;
+            }
+
+
+            circle, ellipse {
+              stroke: #000;
+              fill: none;
+            }
+            circle.act {
+              fill: #fce;
+            }
+
+            line {
+              stroke: #000;
+              stroke-width: 5;
+            }
+            line.act {
+              stroke: red;
+            }
+
+            path {
+              fill: none;
+              stroke: #000;
+            }
+
+            marker path {
+              fill: #000;
+              stroke: none;
+            }
+            marker.act path {
+              fill: red;
+              stroke: none;
+            }
+            marker.frame path {
+              fill: #fff;
+              stroke: #000;
+            }
+
+            text {
+              text-anchor: middle;
+              dominant-baseline: middle;
+            }
+        </style>
+
+    </head>
+    <body>
+      <svg style=position:absolute>
+        <marker id=tri viewbox='0 0 10 10' refx=10 refy=5 markerwidth=8 markerheight=8 orient=auto>
+          <path d='M 0 0 L 10 5 L 0 10 Z' />
+        </marker>
+        <marker class=act id=tri-act viewbox='0 0 10 10' refx=10 refy=5 markerwidth=8 markerheight=8 orient=auto>
+          <path d='M 0 0 L 10 5 L 0 10 Z' />
+        </marker>
+        <marker class=frame id=tri-frame viewbox='0 0 10 10' refx=10 refy=5 markerwidth=8 markerheight=8 orient=auto>
+          <path d='M 0 0 L 10 5 L 0 10 Z' />
+        </marker>
+      </svg>
+        <textarea id=source>
+class: center, middle
+
+# Permutation Parser
+
+# CindyLinz
+
+2015.6.4
+
+---
+
+layout: true
+
+# Parsing
+
+---
+
+一開始我們有一個要解析的目標, 一串文字
+```c
+...
+int lamp_count = 0;
+while( is_sleepless ){
+  lamp_count += 10;
+  play_mobile_phone();
+}
+...
+```
+
+---
+
+這串文字背後有一組語法定義, 以及語意的定義
+```yacc
+statement
+  : block_statement { ... }
+  | while_statement { ... }
+  | if_statement { ... }
+  | expression { ... }
+
+block_statement
+  : "{" statements "}" { ... }
+
+statements
+  : { ... }
+  | statements statement { ... }
+  (LR parser 通常寫上面這個, LL parser 通常寫下面這個, 不過不是今天重點 XD)
+  | statement statements { ... }
+
+while_statement
+  : "while" "(" expression ")" statement { $3...; $5...; $$ = ... }
+
+...
+```
+
+我們要用程式去解析它, 檢查有沒有寫對, 或是依語意定義去作出應用..
+
+---
+
+layout: true
+
+# Parser Combinator 簡略介紹
+
+---
+
+<center>
+    <svg style='width:45%' viewbox='0 0 1000 500'>
+        <g transform='translate(500 0)'>
+            <g transform='translate(-250 100)'>
+                <ellipse rx=200 ry=50 />
+                <text font-size=50>Functor</text>
+            </g>
+
+            <line x1=-250 y1=220 x2=-250 y2=150 marker-end=url(#tri-frame) />
+
+            <g transform='translate(-250 270)'>
+                <ellipse rx=200 ry=50 />
+                <text font-size=50>Applicative</text>
+            </g>
+
+            <line x1=50 y1=270 x2=-50 y2=270 marker-end=url(#tri-frame) />
+
+            <g transform='translate(250 270)'>
+                <ellipse rx=200 ry=50 style='fill:pink' />
+                <text font-size=50>Alternative</text>
+            </g>
+
+            <line x1=-250 y1=390 x2=-250 y2=320 marker-end=url(#tri-frame) />
+            <line x1=250 y1=390 x2=250 y2=320 marker-end=url(#tri-frame) />
+
+            <g transform='translate(-250 440)'>
+                <ellipse rx=200 ry=50 />
+                <text font-size=50>Monad</text>
+            </g>
+
+            <line x1=50 y1=440 x2=-50 y2=440 marker-end=url(#tri-frame) />
+
+            <g transform='translate(250 440)'>
+                <ellipse rx=200 ry=50 />
+                <text font-size=50>MonadPlus</text>
+            </g>
+        </g>
+    </svg>
+</center>
+
+```haskell
+class Functor m where
+  (&lt;$&gt;) :: (a -&gt; b) -&gt; m a -&gt; m b
+
+class Functor m =&gt; Applicative m where
+  pure :: a -&gt; m a
+  (&lt;*&gt;) :: m (a -&gt; b) -&gt; m a -&gt; m b -- m (x -&gt; y -&gt; z) -&gt; m x -&gt; m (y -&gt; z) ...
+  -- a &lt;$&gt; b = pure a &lt;*&gt; b
+class Applicative m =&gt; Alternative m where
+  empty :: m a
+  (&lt;|&gt;) :: m a -&gt; m a -&gt; m a
+-- 以下這兩個不是今天重點
+class Applicative m =&gt; Monad m where
+  (&gt;&gt;=) :: m a -&gt; (a -&gt; m b) -&gt; m b
+class (Monad m, Alternative m) =&gt; MonadPlus m where ...
+```
+
+---
+
+```haskell
+data Statement = BlockStatement | WhileStatement | IfStatement | Expression
+data WhileStatement = WhileStatement Expression Statement
+data IfStatement
+  = IfStatement1 Expression Statement -- 沒有 else 的 if
+  | IfStatement2 Expression Statement Statement -- 有 else 的
+data Expression = ...
+...
+
+statement = whileStatement &lt;|&gt; ifStatement &lt;|&gt; expression
+
+whileStatement =
+  (\_ _ cond _ body -&gt; WhileStatement cond body) &lt;$&gt;
+    string "while" &lt;*&gt; string "(" &lt;*&gt; expression &lt;*&gt; string ")" &lt;*&gt; statement
+
+ifStatement
+  =   (\_ _ cond _ thenDo _ elseDo -&gt; IfStatement2 cond thenDo elseDo) &lt;$&gt;
+    string "if" &lt;*&gt; string "(" &lt;*&gt; expression &lt;*&gt; string ")" &lt;*&gt; statement &lt;*&gt;
+    string "else" &lt;*&gt; statement
+  &lt;|&gt; (\_ _ cond _ thenDo -&gt; IfStatement1 cond thenDo) &lt;$&gt;
+    string "if" &lt;*&gt; string "(" &lt;*&gt; expression &lt;*&gt; string ")" &lt;*&gt; statement
+...
+```
+
+---
+
+`Alternative` 不是專門作 Parser 的, 它只是一個數學結構而已..<br>
+(or 常見的 Parser 行徑剛好很符合 `Alternative` 這個數學結構)
+
+--
+
+還有一些在許多語言裡面也蠻常見的 pattern:
+  * 用某某分隔符號(例如逗點)隔開的 list<br>
+    -- 1, 20, 3, 5, 7
+  * 用某某分隔符號隔開, 並且有開頭結尾符號(例如用括號包起來)的 list<br>
+    -- (1, 20, 3, 5, 7)
+  * 某某項目可有可無, 如果沒寫的話就用預設的某某某 (例如 if 後面的 else 部分)
+  * ...
+
+--
+
+或是一些很可能會想用的偏差(?)行為:
+  * 把 parse 吃 source 的動作暫停一下, 先前後左右偷看一些東西, 或是互動式地問一下使用者現在該怎麼辦
+  * 為效能考量, 約定怎樣情況下會把已經看過的輸入原始碼丟掉, 需要提供額外的機制在必要的時候要求把部分看過的原始碼保留著用
+  * ...
+
+---
+
+Parser Combinator 即是提供輔助寫這些 pattern 的函數, 讓我們偷懶不用全都從頭刻
+
+```haskell
+sepBy :: Alternative m =&gt; m a -&gt; m sep -&gt; m [a]
+sepEndBy :: Alternative m =&gt; m a -&gt; m sep -&gt; m [a]
+sepBy1 :: Alternative m =&gt; m a -&gt; m sep -&gt; m [a]
+...
+between :: Applicative m =&gt; m bra -&gt; m ket -&gt; m a -&gt; m a
+option :: Alternative m =&gt; a -&gt; m a -&gt; m a
+choice :: Alternative m =&gt; [m a] -&gt; m a
+many :: Alternative m =&gt; m a -&gt; m [a]
+some :: Alternative m =&gt; m a -&gt; m [a]
+...
+-- 以上都是 helper 偷懶函數, 都可以手動只用 Alternative 提供的功能組合出來
+-- 以下是只用 Alternative 提供的功能辦不到, 所以要求底層多吐一些功能出來用
+class Alternative m =&gt; Parsing m where
+  try :: m a -&gt; m a
+  ...
+  skipMany :: m a -&gt; m ()
+  -- 這個只用 Alternative 其實就夠了
+  -- 叫底層額外做是看他能不能用效能更好的方法實作
+
+-- 今天要介紹的東西只需要 Alternative, 不需要 Parsing 的功能
+```
+
+---
+
+layout: false
+
+# Permutation Parsing 要處理的對象
+
+```c
+int static const unsigned n = 5;
+```
+這裡 `int`, `static`, `const`, `unsigned` 順序可隨意, 不可重複, 有些可以省略<br>
+(那就用預設行為)
+
+```html
+&lt;img width="200" height="100" title="一張圖" src="http://.../...jpg" /&gt;
+```
+`img` 裡面的參數也有一樣性質, 並且出現時有部分的資料要粹取出來
+
+--
+
+`Alternative` 結構沒有表達接受任意排列組合的特性的方法, 一般常見的 parser 產生器也沒有提供這種功能.
+
+今天介紹的 library (與 paper) 就是要提供描述這個特性的方法, 並且轉譯為 `Alternative` 能表達的方式, 並且效能是在合理範圍內.
+
+---
+
+layout: false
+
+# Permutation Parser 預期用法
+
+```haskell
+data Img = Img
+  { imgSrc
+  , imgWidth
+  , imgHeight
+  , imgTitle :: String
+  }
+
+parseImg = (\_ _ img _ -&gt; img)
+  &lt;$&gt; string "&lt;"
+  &lt;*&gt; istring "img" -- 不分大小寫 :p
+  &lt;*&gt; permute
+    ( Img -- Img 或寫成 (\a b c d -&gt; Img a b c d) 意思一樣
+          -- 寫成 (\src width height title -&gt; Img src width height title)
+          -- 可能更好讀
+      &lt;$$&gt; attr "src"
+      &lt;|?&gt; ("", attr "width")
+      &lt;|?&gt; ("", attr "height")
+      &lt;|?&gt; ("", attr "title")
+    )
+  &lt;*&gt; string "/&gt;"
+```
+---
+
+layout: true
+
+# Permutation Parser 的程式碼 (by EdwardK)
+
+---
+
+```haskell
+data Permutation m a = Permutation (Maybe a) [Branch m a]
+data Branch m a = forall b. Branch (Permutation m (b -&gt; a)) (m b)
+
+instance Functor m =&gt; Functor (Permutation m) where
+  fmap f (Permutation x xs) = Permutation (fmap f x) (fmap f &lt;$&gt; xs)
+
+instance Functor m =&gt; Functor (Branch m) where
+  fmap f (Branch perm p) = Branch (fmap (f.) perm) p
+```
+
+---
+```haskell
+permute :: Alternative m =&gt; Permutation m a -&gt; m a
+permute (Permutation def xs)
+  = asum (map branch xs ++ e)
+  where
+    e = maybe [] (pure . pure) def
+    branch (Branch perm p) = flip id &lt;$&gt; p &lt;*&gt; permute perm
+
+newPermutation :: Functor m =&gt; (a -&gt; b) -&gt; Permutation m (a -&gt; b)
+newPermutation f = Permutation (Just f) []
+
+add :: Functor m =&gt; Permutation m (a -&gt; b) -&gt; m a -&gt; Permutation m b
+add perm@(Permutation _mf fs) p
+  = Permutation Nothing (first:map insert fs)
+  where
+    first = Branch perm p
+    insert (Branch perm' p') = Branch (add (fmap flip perm') p) p'
+
+addOpt :: Functor m =&gt; Permutation m (a -&gt; b) -&gt; a -&gt; m a -&gt; Permutation m b
+addOpt perm@(Permutation mf fs) x p
+  = Permutation (fmap ($ x) mf) (first:map insert fs)
+  where
+    first = Branch perm p
+    insert (Branch perm' p') = Branch (addOpt (fmap flip perm') x p) p'
+```
+
+---
+
+```haskell
+(&lt;||&gt;) :: Functor m =&gt; Permutation m (a -&gt; b) -&gt; m a -&gt; Permutation m b
+(&lt;||&gt;) = add
+infixl 1 &lt;||&gt;
+
+(&lt;$$&gt;) :: Functor m =&gt; (a -&gt; b) -&gt; m a -&gt; Permutation m b
+(&lt;$$&gt;) f p = newPermutation f &lt;||&gt; p
+infixl 2 &lt;$$&gt;
+
+(&lt;|?&gt;) :: Functor m =&gt; Permutation m (a -&gt; b) -&gt; (a, m a) -&gt; Permutation m b
+(&lt;|?&gt;) perm (x,p) = addOpt perm x p
+infixl 1 &lt;|?&gt;
+
+(&lt;$?&gt;) :: Functor m =&gt; (a -&gt; b) -&gt; (a, m a) -&gt; Permutation m b
+(&lt;$?&gt;) f (x,p) = newPermutation f &lt;|?&gt; (x,p)
+infixl 2 &lt;$?&gt;
+```
+
+---
+
+layout: true
+
+# 以玩具範例說明運作機制
+
+---
+
+  + 假設這是我們要 parse 的排列組合
+
+    ```
+        a* &lt;||&gt; b &lt;||&gt; c?
+    ```
+
+    (其中 `a*`, `b`, `c?` 是 regex 的寫法)
+
+--
+
+  + 把排列組合展開寫成 regex 是這樣
+
+    ```
+        a* b c? |
+        a* c? b |
+        b a* c? |
+        b c? a* |
+        c? a* b |
+        c? b a*
+    ```
+
+---
+
+  + 畫成決策樹是這樣
+
+    <center>
+      <svg style='width:45%' viewbox='-151 0 1001 1300'>
+        <circle cx=-100 cy=650 r=50 />
+        <line x1=-50 y1=650 x2=150 y2=250 marker-end=url(#tri)  />
+        <line x1=-50 y1=650 x2=150 y2=650 marker-end=url(#tri) />
+        <line x1=-50 y1=650 x2=150 y2=1050 marker-end=url(#tri)  />
+        <g transform='translate(200 250)'>
+          <circle r=50  />
+          <text font-size=50>a*</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri)  />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50  />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>c?</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50  />
+              <text font-size=50>c?</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 650)'>
+          <circle r=50 />
+          <text font-size=50>b</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri) />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50 />
+              <text font-size=50>a*</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>c?</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <text font-size=50>c?</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a*</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 1050)'>
+          <circle r=50  />
+          <text font-size=50>c?</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50  />
+              <text font-size=50>a*</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a*</text>
+              </g>
+            </g>
+          </g>
+        </g>
+      </svg>
+    </center>
+
+    .....對, 不意外地會展開出 N! 個終點 <small>(1, 2, 6, 24, 120, 720, 5040, 40320, 362880..)</small><br>
+    <small style=color:#666>手工寫 SVG 畫圖有點累, 複製貼上很多, 很難修改 :(</small>
+
+---
+
+  * 而且有 ambiguity
+    <center>
+      <svg style='width:45%' viewbox='-151 0 1001 1300'>
+        <circle cx=-100 cy=650 r=50 class=act />
+        <line x1=-50 y1=650 x2=150 y2=250 marker-end=url(#tri-act) class=act />
+        <line x1=-50 y1=650 x2=150 y2=650 marker-end=url(#tri) />
+        <line x1=-50 y1=650 x2=150 y2=1050 marker-end=url(#tri-act) class=act />
+        <g transform='translate(200 250)'>
+          <circle r=50 class=act />
+          <text font-size=50>a*</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri-act) class=act />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri-act) class=act />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50 class=act />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri-act) class=act />
+              <g transform='translate(300 0)'>
+                <circle r=50 class=act />
+                <circle r=40 />
+                <text font-size=50>c?</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 class=act />
+              <text font-size=50>c?</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri-act) class=act />
+              <g transform='translate(300 0)'>
+                <circle r=50 class=act />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 650)'>
+          <circle r=50 />
+          <text font-size=50>b</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri) />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50 />
+              <text font-size=50>a*</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>c?</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <text font-size=50>c?</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a*</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 1050)'>
+          <circle r=50 class=act />
+          <text font-size=50>c?</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri-act) class=act />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50 class=act />
+              <text font-size=50>a*</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri-act) class=act />
+              <g transform='translate(300 0)'>
+                <circle r=50 class=act />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a*</text>
+              </g>
+            </g>
+          </g>
+        </g>
+      </svg>
+    </center>
+
+    (這邊是以 match `aaab` 為例)
+
+---
+
+  * 為去除 ambiguity, 我們把這些可能為「空」的 element 拆開成「空」與「非空」的部分.<br>
+    且不失一般性, 限制它們只有出現在尾巴的時候可以走「空」的選擇
+    <center>
+      <svg style='width:45%' viewbox='-152 0 1003 1300'>
+        <circle cx=-100 cy=650 r=50 />
+        <line x1=-50 y1=650 x2=150 y2=250 marker-end=url(#tri)  />
+        <line x1=-50 y1=650 x2=150 y2=650 marker-end=url(#tri) />
+        <line x1=-50 y1=650 x2=150 y2=1050 marker-end=url(#tri)  />
+        <g transform='translate(200 250)'>
+          <circle r=50  />
+          <text font-size=50>a*</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri)  />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50  />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>c?</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50  />
+              <text font-size=50>c?</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 650)'>
+          <circle r=50 />
+          <text font-size=50>b</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri) />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50 />
+              <text font-size=50>a*</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>c?</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <text font-size=50>c?</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a*</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 1050)'>
+          <circle r=50  />
+          <text font-size=50>c?</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50  />
+              <text font-size=50>a*</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a*</text>
+              </g>
+            </g>
+          </g>
+        </g>
+      </svg>
+
+      <svg style='width:45%' viewbox='-152 0 1001 1300'>
+        <circle cx=-100 cy=650 r=50 />
+        <line x1=-50 y1=650 x2=150 y2=250 marker-end=url(#tri)  />
+        <line x1=-50 y1=650 x2=150 y2=650 marker-end=url(#tri) />
+        <line x1=-50 y1=650 x2=150 y2=1050 marker-end=url(#tri)  />
+        <g transform='translate(200 250)'>
+          <circle r=50  />
+          <text font-size=50>a+</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri)  />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50  />
+              <circle r=40 />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>c</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50  />
+              <text font-size=50>c</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 650)'>
+          <circle r=50 />
+          <circle r=40 />
+          <text font-size=50>b</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri) />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50 />
+              <circle r=40 />
+              <text font-size=50>a+</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>c</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <circle r=40 />
+              <text font-size=50>c</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a+</text>
+              </g>
+            </g>
+          </g>
+        </g>
+
+        <g transform='translate(200 1050)'>
+          <circle r=50  />
+          <text font-size=50>c</text>
+
+          <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+          <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <g transform='translate(0 -100)'>
+              <circle r=50  />
+              <text font-size=50>a+</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri)  />
+              <g transform='translate(300 0)'>
+                <circle r=50  />
+                <circle r=40 />
+                <text font-size=50>b</text>
+              </g>
+            </g>
+
+            <g transform='translate(0 100)'>
+              <circle r=50 />
+              <circle r=40 />
+              <text font-size=50>b</text>
+
+              <line x1=50 x2=250 marker-end=url(#tri) />
+              <g transform='translate(300 0)'>
+                <circle r=50 />
+                <circle r=40 />
+                <text font-size=50>a+</text>
+              </g>
+            </g>
+          </g>
+        </g>
+      </svg>
+    </center>
+
+---
+
+  * 而 N! 條路徑, 利用 Haskell non-strict evaluation 的特性, 把一整坨還沒走過的未來路徑排列當成糾纏態包在 thunk 裡面
+
+    每往前走一步, 糾纏態就崩塌(解開)一步, 而旁支不會走到的糾纏態就整團捨棄.
+
+---
+
+layout: true
+
+# 決策樹與資料結構的對應
+
+<div style='float:right;width:30%;height:60%;background-color:#fdc;position:relative;left:8%'>
+  <svg style='width:100%' viewbox='-152 0 1002 1300'>
+    <circle cx=-100 cy=650 r=50 />
+    <line x1=-50 y1=650 x2=150 y2=250 marker-end=url(#tri)  />
+    <line x1=-50 y1=650 x2=150 y2=650 marker-end=url(#tri) />
+    <line x1=-50 y1=650 x2=150 y2=1050 marker-end=url(#tri)  />
+    <g transform='translate(200 250)'>
+      <circle r=50  />
+      <text font-size=50>a+</text>
+
+      <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+      <line x1=50 x2=250 y2=100 marker-end=url(#tri)  />
+      <g transform='translate(300 0)'>
+        <g transform='translate(0 -100)'>
+          <circle r=50  />
+          <circle r=40 />
+          <text font-size=50>b</text>
+
+          <line x1=50 x2=250 marker-end=url(#tri)  />
+          <g transform='translate(300 0)'>
+            <circle r=50  />
+            <circle r=40 />
+            <text font-size=50>c</text>
+          </g>
+        </g>
+
+        <g transform='translate(0 100)'>
+          <circle r=50  />
+          <text font-size=50>c</text>
+
+          <line x1=50 x2=250 marker-end=url(#tri)  />
+          <g transform='translate(300 0)'>
+            <circle r=50  />
+            <circle r=40 />
+            <text font-size=50>b</text>
+          </g>
+        </g>
+      </g>
+    </g>
+
+    <g transform='translate(200 650)'>
+      <circle r=50 />
+      <circle r=40 />
+      <text font-size=50>b</text>
+
+      <line x1=50 x2=250 y2=-100 marker-end=url(#tri) />
+      <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+      <g transform='translate(300 0)'>
+        <g transform='translate(0 -100)'>
+          <circle r=50 />
+          <circle r=40 />
+          <text font-size=50>a+</text>
+
+          <line x1=50 x2=250 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <circle r=50 />
+            <circle r=40 />
+            <text font-size=50>c</text>
+          </g>
+        </g>
+
+        <g transform='translate(0 100)'>
+          <circle r=50 />
+          <circle r=40 />
+          <text font-size=50>c</text>
+
+          <line x1=50 x2=250 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <circle r=50 />
+            <circle r=40 />
+            <text font-size=50>a+</text>
+          </g>
+        </g>
+      </g>
+    </g>
+
+    <g transform='translate(200 1050)'>
+      <circle r=50  />
+      <text font-size=50>c</text>
+
+      <line x1=50 x2=250 y2=-100 marker-end=url(#tri)  />
+      <line x1=50 x2=250 y2=100 marker-end=url(#tri) />
+      <g transform='translate(300 0)'>
+        <g transform='translate(0 -100)'>
+          <circle r=50  />
+          <text font-size=50>a+</text>
+
+          <line x1=50 x2=250 marker-end=url(#tri)  />
+          <g transform='translate(300 0)'>
+            <circle r=50  />
+            <circle r=40 />
+            <text font-size=50>b</text>
+          </g>
+        </g>
+
+        <g transform='translate(0 100)'>
+          <circle r=50 />
+          <circle r=40 />
+          <text font-size=50>b</text>
+
+          <line x1=50 x2=250 marker-end=url(#tri) />
+          <g transform='translate(300 0)'>
+            <circle r=50 />
+            <circle r=40 />
+            <text font-size=50>a+</text>
+          </g>
+        </g>
+      </g>
+    </g>
+  </svg>
+</div>
+
+---
+
+```haskell
+data Permutation m a =
+  Permutation (Maybe a) [Branch m a]
+  -- subtree root 與其下整個 subtree
+
+data Branch m a =
+  forall b. Branch (Permutation m (b -&gt; a)) (m b)
+  -- subtree root 與其下整個 subtree
+  -- 和 subtree root 的 parent edge
+
+```
+
+---
+
+這棵決策樹對應的(`N!`展開後的)資料結構
+
+```haskell
+Permutation Nothing
+  [ Branch
+    ( Permutation Nothing
+      [ Branch
+        ( Permutation (Just (,, ""))
+          [Branch (Permutation (Just (,,)) []) (regex "c")]
+        )
+        (regex "b")
+      , Branch
+        ( Permutation Nothing
+          [Branch (Permutation (Just (,,)) []) (regex "b")]
+        )
+        (regex "c")
+      ]
+    )
+    (regex "a+")
+  , Branch ... (regex "b"), Branch ... (regex "c") ] -- 剩下通通縮起來擠在這XD
+```
+```haskell
+data Permutation m a = Permutation (Maybe a) [Branch m a]
+data Branch m a = forall b. Branch (Permutation m (b -&gt; a)) (m b)
+```
+
+---
+
+執行的方式..
+
+```haskell
+permute :: Alternative m =&gt; Permutation m a -&gt; m a
+permute (Permutation def xs)
+  = asum (map branch xs ++ e) -- asum [a..z] = a &lt;|&gt; .. &lt;|&gt; z
+  where
+    e = maybe [] (pure . pure) def
+        -- pure (pure def) = [pure def]
+    branch (Branch perm p) = flip id &lt;$&gt; p &lt;*&gt; permute perm
+        -- flip id :: a -&gt; (a -&gt; b) -&gt; b
+```
+```haskell
+Permutation Nothing
+  [ Branch
+    ( Permutation Nothing
+      [ Branch
+        ( Permutation (Just (,, ""))
+          [Branch (Permutation (Just (,,)) []) (regex "c")]
+        )
+        (regex "b")
+      , Branch
+        ( Permutation Nothing
+          [Branch (Permutation (Just (,,)) []) (regex "b")]
+        )
+```
+
+---
+
+產生這串資料結構的手寫程式碼寫法
+
+```haskell
+permute
+  ( (,,)
+    &lt;$?&gt; ("", regex "a+")
+    &lt;||&gt; regex "b"
+    &lt;|?&gt; ("", regex "c")
+  )
+```
+
+--
+
+```haskell
+permute
+  ( addOpt
+    ( add
+      ( addOpt
+        (newPermutation (,,))
+        ""
+        (regex "a+")
+      )
+      (regex "b")
+    )
+    ""
+    (regex "c")
+  )
+```
+
+---
+
+```haskell
+permute
+  ( addOpt
+    ( add
+      ( addOpt
+        (newPermutation (,,))
+        ""
+        (regex "a+")
+      )
+      (regex "b")
+    )
+    ""
+    (regex "c")
+  )
+```
+
+```haskell
+permute :: Alternative m =&gt; Permutation m a -&gt; m a
+newPermutation :: Functor m =&gt; (a -&gt; b) -&gt; Permutation m (a -&gt; b)
+add :: Functor m =&gt;
+  Permutation m (a -&gt; b) -&gt; m a -&gt; Permutation m b
+addOpt :: Functor m =&gt;
+  Permutation m (a -&gt; b) -&gt; a -&gt; m a -&gt; Permutation m b
+```
+
+---
+layout: false
+
+# 決策樹與資料結構的對應
+
+```haskell
+data Permutation m a = Permutation (Maybe a) [Branch m a]
+
+data Branch m a = forall b. Branch (Permutation m (b -&gt; a)) (m b)
+
+instance Functor m =&gt; Functor (Permutation m) where
+  fmap f (Permutation x xs) = Permutation (fmap f x) (fmap f &lt;$&gt; xs)
+
+instance Functor m =&gt; Functor (Branch m) where
+  fmap f (Branch perm p) = Branch (fmap (f.) perm) p
+
+newPermutation :: Functor &gt; (a -&gt; b) -&gt; Permutation m (a -&gt; b)
+newPermutation f = Permutation (Just f) []
+```
+
+---
+layout: false
+
+# 決策樹與資料結構的對應
+
+```haskell
+data Permutation m a = Permutation (Maybe a) [Branch m a]
+data Branch m a = forall b. Branch (Permutation m (b -&gt; a)) (m b)
+
+instance Functor m =&gt; Functor (Permutation m) where
+  fmap f (Permutation x xs) = Permutation (fmap f x) (fmap f &lt;$&gt; xs)
+instance Functor m =&gt; Functor (Branch m) where
+  fmap f (Branch perm p) = Branch (fmap (f.) perm) p
+
+add :: Functor m =&gt; Permutation m (a -&gt; b) -&gt; m a -&gt; Permutation m b
+add perm@(Permutation _mf fs) p
+  = Permutation Nothing (first:map insert fs)
+  where
+    first = Branch perm p
+    insert (Branch perm' p') = Branch (add (fmap flip perm') p) p'
+
+addOpt :: Functor m =&gt; Permutation m (a -&gt; b) -&gt; a -&gt; m a -&gt; Permutation m b
+addOpt perm@(Permutation mf fs) x p
+  = Permutation (fmap ($ x) mf) (first:map insert fs)
+  where
+    first = Branch perm p
+    insert (Branch perm' p') = Branch (addOpt (fmap flip perm') x p) p'
+```
+
+---
+
+layout: false
+
+# 參考資料
+
+  * [Parsing Permutation Phrases](http://www.cs.ox.ac.uk/jeremy.gibbons/wg21/meeting56/loeh-slides.pdf) -- Arthur Baars, Andres L ̈oh, Doaitse Swierstra, 2001
+  * [Hackage package: Parsers](http://hackage.haskell.org/package/parsers)'s Text.Parser.Permutation -- Edward A. Kmett
+
+        </textarea>
+        <script src=remark-0.10.2.min.js></script>
+        <script>
+            var slideshow = remark.create({
+              highlightStyle: 'monokai',
+              highlightLanguage: 'remark'
+            });
+        </script>
+    </body>
+</html>
